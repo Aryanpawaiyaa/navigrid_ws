@@ -1,0 +1,12 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+
+    # Stage 3 Safety Equation: d_safe = k * (v^2) + d_min
+    safety_k: 1.25                 # Velocity quadratic braking factor (s^2 / m)
+    safety_d_min: 0.65             # Baseline safety clearance at zero velocity (meters)
+
+    # Dynamic Obstacle Evaluation Limits
+    detection_fov_deg: 160.0       # Forward scanning angle range (±80 degrees)
+    max_detection_range: 8.0       # Max distance to evaluate obstacles
+    safety_override_cooldown: 1.0  # Duration (seconds) to hold stop before auto-recovery

@@ -1,0 +1,16 @@
+/**:
+  ros__parameters:
+    use_sim_time: true
+    grid_resolution: 0.15          # Grid cell size in meters
+    robot_radius: 0.45             # Inflation buffer around obstacles
+    arena_min_x: -15.0
+    arena_max_x: 15.0
+    arena_min_y: -15.0
+    arena_max_y: 15.0
+
+    # Stage 2 Adaptive Cost Parameters
+    # Total Cost = Distance + (slope_cost_multiplier * elevation_cost)
+    slope_cost_multiplier: 4.0     # Penalty factor for traversing elevated incline ramp
+    payload_mode: "adaptive"       # Options: 'light' (prefer ramp), 'heavy' (prefer flat zig-zag), 'adaptive'
+    payload_weight_kg: 25.0        # Robot payload; affects inclination penalty dynamically
+    max_incline_payload_limit: 35.0 # Max kg before direct ramp is deemed impermissible
