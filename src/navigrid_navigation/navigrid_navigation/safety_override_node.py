@@ -27,18 +27,23 @@ class SafetyOverrideNode(Node):
         # Parameters from YAML or defaults
         self.declare_parameter('safety_k', 1.25)
         self.declare_parameter('safety_d_min', 0.65)
-        self.declare_parameter('detection_fov_deg', 150.0)
+        self.declare_parameter('detection_fov_deg', 70.0)
+        self.declare_parameter('safety_override_cooldown', 1.0)
+        self.declare_parameter('hysteresis_margin', 0.10)
 
         self.k = self.get_parameter('safety_k').value
         self.d_min = self.get_parameter('safety_d_min').value
         fov_deg = self.get_parameter('detection_fov_deg').value
         self.fov_rad = math.radians(fov_deg)
+        self.cooldown = self.get_parameter('safety_override_cooldown').value
+        self.hysteresis_margin = self.get_parameter('hysteresis_margin').value
 
         # State Variables
         self.current_linear_velocity = 0.0
         self.nominal_cmd = Twist()
         self.min_obstacle_distance = float('inf')
         self.emergency_stop_active = False
+        self.stop_trigger_time = None
 
         # Publishers & Subscribers
         self.cmd_out_pub = self.create_publisher(Twist, '/cmd_vel', 10)
@@ -94,27 +99,45 @@ class SafetyOverrideNode(Node):
         v = self.current_linear_velocity
         d_safe = self.compute_d_safe(v)
         obs_dist = self.min_obstacle_distance
+        now = self.get_clock().now()
 
         # Breach condition
         if obs_dist < d_safe:
             if not self.emergency_stop_active:
-                self.get_logger().warn(
+                self.get_logger().warning(
                     f'EMERGENCY STOP! Obstacle at {obs_dist:.2f}m < '
                     f'd_safe({d_safe:.2f}m) [v = {v:.2f} m/s]'
                 )
                 self.emergency_stop_active = True
+                self.stop_trigger_time = now
 
-            zero_cmd = Twist()
-            self.cmd_out_pub.publish(zero_cmd)
+            # Zero linear speed, but allow reactive angular rotation to steer away
+            stop_cmd = Twist()
+            if abs(self.nominal_cmd.angular.z) > 0.05:
+                stop_cmd.angular.z = self.nominal_cmd.angular.z * 0.75
+            self.cmd_out_pub.publish(stop_cmd)
         else:
-            if self.emergency_stop_active:
-                self.get_logger().info(
-                    f'Obstacle clear ({obs_dist:.2f}m >= {d_safe:.2f}m). '
-                    'Resuming autonomous control.'
-                )
-                self.emergency_stop_active = False
+            clear_threshold = d_safe + self.hysteresis_margin
+            time_since_stop = (
+                (now - self.stop_trigger_time).nanoseconds / 1e9
+                if self.stop_trigger_time else 999.0
+            )
 
-            self.cmd_out_pub.publish(self.nominal_cmd)
+            if self.emergency_stop_active:
+                if obs_dist >= clear_threshold and time_since_stop >= self.cooldown:
+                    self.get_logger().info(
+                        f'Obstacle clear ({obs_dist:.2f}m >= {clear_threshold:.2f}m). '
+                        'Resuming autonomous control.'
+                    )
+                    self.emergency_stop_active = False
+                    self.cmd_out_pub.publish(self.nominal_cmd)
+                else:
+                    stop_cmd = Twist()
+                    if abs(self.nominal_cmd.angular.z) > 0.05:
+                        stop_cmd.angular.z = self.nominal_cmd.angular.z * 0.75
+                    self.cmd_out_pub.publish(stop_cmd)
+            else:
+                self.cmd_out_pub.publish(self.nominal_cmd)
 
         self.publish_rviz_safety_markers(d_safe)
 

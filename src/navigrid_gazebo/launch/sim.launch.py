@@ -2,7 +2,7 @@ import os
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, ExecuteProcess
-from launch.conditions import IfCondition
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, Command
 from launch_ros.actions import Node
@@ -20,6 +20,33 @@ def generate_launch_description():
     use_rviz = LaunchConfiguration('rviz', default='true')
     headless = LaunchConfiguration('headless', default='false')
 
+    # Add custom models to Gazebo resource path
+    models_path = os.path.join(pkg_gazebo, 'models')
+    existing_resource_path = os.environ.get('GZ_SIM_RESOURCE_PATH', '')
+    if existing_resource_path:
+        os.environ['GZ_SIM_RESOURCE_PATH'] = f"{models_path}:{existing_resource_path}"
+    else:
+        os.environ['GZ_SIM_RESOURCE_PATH'] = models_path
+
+    # Static Transform Publisher: map -> odom (aligns arena world map with robot start pose)
+    static_tf_node = Node(
+        package='tf2_ros',
+        executable='static_transform_publisher',
+        name='static_map_to_odom',
+        arguments=[
+            '--x', '-12.0',
+            '--y', '-12.0',
+            '--z', '0.0',
+            '--yaw', '0.785398',
+            '--pitch', '0.0',
+            '--roll', '0.0',
+            '--frame-id', 'map',
+            '--child-frame-id', 'odom'
+        ],
+        parameters=[{'use_sim_time': use_sim_time}],
+        output='screen'
+    )
+
     # Robot State Publisher
     robot_description_cmd = Command(['xacro ', xacro_path])
     robot_state_publisher_node = Node(
@@ -33,11 +60,17 @@ def generate_launch_description():
         }]
     )
 
-    # Launch Gazebo Sim
-    gz_args = ['-r ', world_path]
-    gazebo_process = ExecuteProcess(
+    # Launch Gazebo Sim (GUI vs Headless)
+    gazebo_gui_process = ExecuteProcess(
         cmd=['gz', 'sim', '-r', world_path],
-        output='screen'
+        output='screen',
+        condition=UnlessCondition(headless)
+    )
+
+    gazebo_headless_process = ExecuteProcess(
+        cmd=['gz', 'sim', '-s', '-r', world_path],
+        output='screen',
+        condition=IfCondition(headless)
     )
 
     # Spawn AMR in Gazebo at Start Zone A (-12, -12, 0.2)
@@ -81,8 +114,10 @@ def generate_launch_description():
         DeclareLaunchArgument('use_sim_time', default_value='true', description='Use simulation clock'),
         DeclareLaunchArgument('rviz', default_value='true', description='Open RViz visualization'),
         DeclareLaunchArgument('headless', default_value='false', description='Run headless simulation'),
+        static_tf_node,
         robot_state_publisher_node,
-        gazebo_process,
+        gazebo_gui_process,
+        gazebo_headless_process,
         spawn_robot_node,
         bridge_node,
         rviz_node

@@ -7,6 +7,7 @@
     safety_d_min: 0.65             # Baseline safety clearance at zero velocity (meters)
 
     # Dynamic Obstacle Evaluation Limits
-    detection_fov_deg: 160.0       # Forward scanning angle range (±80 degrees)
+    detection_fov_deg: 70.0        # Forward scanning angle range (±35 degrees forward cone)
     max_detection_range: 8.0       # Max distance to evaluate obstacles
     safety_override_cooldown: 1.0  # Duration (seconds) to hold stop before auto-recovery
+    hysteresis_margin: 0.10        # Clearance margin required above d_safe to disengage emergency stop

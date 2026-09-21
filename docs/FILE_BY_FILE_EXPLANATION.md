@@ -282,7 +282,7 @@ The workspace follows the standard ROS 2 multi-package architecture:
 * **`NaviGrid_Workspace`** (`/home/aryan/Desktop/NaviGrid_Workspace`):
   Symlink pointing directly to `/home/aryan/navigrid_ws`.
 * **`run_navigrid.sh`** (`/home/aryan/Desktop/run_navigrid.sh`):
-  Shell script that sources `/opt/ros/lyrical/setup.bash`, builds the workspace if unbuilt, sources `install/setup.bash`, and runs `navigrid_all.launch.py`.
+  Shell script that sources `/opt/ros/${ROS_DISTRO:-jazzy}/setup.bash`, builds the workspace if unbuilt, sources `install/setup.bash`, and runs `navigrid_all.launch.py`.
 * **`navigrid-simulation.desktop`**:
   GUI launcher on Desktop to start the simulation in `xfce4-terminal` with one click.
 * **`navigrid-workspace.desktop`**:

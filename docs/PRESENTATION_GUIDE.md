@@ -39,7 +39,7 @@ Use this guide when presenting the project to judges, evaluators, or team member
 
 ### Build & Validate Workspace (Colcon Rule Compliance)
 ```bash
-source /opt/ros/lyrical/setup.bash
+source /opt/ros/${ROS_DISTRO:-jazzy}/setup.bash
 cd ~/navigrid_ws
 colcon build --symlink-install
 source install/setup.bash

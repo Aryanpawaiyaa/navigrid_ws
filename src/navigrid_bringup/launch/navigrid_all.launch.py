@@ -11,6 +11,7 @@ def generate_launch_description():
 
     use_sim_time = LaunchConfiguration('use_sim_time', default='true')
     use_rviz = LaunchConfiguration('rviz', default='true')
+    headless = LaunchConfiguration('headless', default='false')
 
     # Include Gazebo simulation launch (world, robot model, bridge, rviz)
     sim_launch = IncludeLaunchDescription(
@@ -19,7 +20,8 @@ def generate_launch_description():
         ),
         launch_arguments={
             'use_sim_time': use_sim_time,
-            'rviz': use_rviz
+            'rviz': use_rviz,
+            'headless': headless
         }.items()
     )
 
@@ -36,6 +38,7 @@ def generate_launch_description():
     return LaunchDescription([
         DeclareLaunchArgument('use_sim_time', default_value='true', description='Use simulation clock'),
         DeclareLaunchArgument('rviz', default_value='true', description='Open RViz visualization'),
+        DeclareLaunchArgument('headless', default_value='false', description='Run headless simulation'),
         sim_launch,
         nav_launch
     ])

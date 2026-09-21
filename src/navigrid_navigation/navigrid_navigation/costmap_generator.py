@@ -13,6 +13,7 @@ from nav_msgs.msg import MapMetaData, OccupancyGrid
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import LaserScan
 
 
@@ -52,9 +53,14 @@ class CostmapGenerator(Node):
             f'at {self.resolution}m/cell'
         )
 
-        # Publishers & Subscribers
+        # Publishers & Subscribers (Transient Local QoS matches RViz map display)
+        costmap_qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE
+        )
         self.costmap_pub = self.create_publisher(
-            OccupancyGrid, '/costmap', 10
+            OccupancyGrid, '/costmap', costmap_qos
         )
         self.scan_sub = self.create_subscription(
             LaserScan, '/scan', self.scan_callback, 10
@@ -133,6 +139,12 @@ class CostmapGenerator(Node):
         self._mark_cylinder(-4.0, -8.0, 0.45, 100)
         self._mark_cylinder(6.0, 9.0, 0.45, 100)
 
+        # Diagonal Chicane Obstacles
+        self._mark_cylinder(-9.5, -9.5, 0.50, 100)
+        self._mark_box(-11.0, -7.0, 1.2, 1.2, 100)
+        self._mark_cylinder(9.5, 9.5, 0.50, 100)
+        self._mark_box(7.0, 11.0, 1.2, 1.2, 100)
+
         # Incline Ramp Zone (Diagonal Corridor)
         for gy in range(self.height):
             for gx in range(self.width):
@@ -169,7 +181,7 @@ class CostmapGenerator(Node):
 
         grid_msg = OccupancyGrid()
         grid_msg.header.stamp = self.get_clock().now().to_msg()
-        grid_msg.header.frame_id = 'odom'
+        grid_msg.header.frame_id = 'map'
 
         meta = MapMetaData()
         meta.resolution = float(self.resolution)

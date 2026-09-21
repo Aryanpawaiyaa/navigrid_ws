@@ -15,6 +15,9 @@ import rclpy
 from rclpy.node import Node
 
 
+from tf2_ros import Buffer, TransformListener
+
+
 class AdaptiveGlobalPlanner(Node):
 
     def __init__(self):
@@ -35,6 +38,10 @@ class AdaptiveGlobalPlanner(Node):
             self.get_parameter('max_incline_payload_limit').value
         )
 
+        # TF Listener for map-frame localization
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
         # Publishers & Subscribers
         self.path_pub = self.create_publisher(Path, '/plan', 10)
         self.odom_sub = self.create_subscription(
@@ -50,6 +57,7 @@ class AdaptiveGlobalPlanner(Node):
             self.get_parameter('default_goal_y').value
         )
         self.has_planned = False
+        self.active_path_msg = None
 
         # Periodic check / publish timer
         self.timer = self.create_timer(1.0, self.plan_and_publish)
@@ -60,10 +68,25 @@ class AdaptiveGlobalPlanner(Node):
         )
 
     def odom_callback(self, msg: Odometry):
-        self.current_pose = (
-            msg.pose.pose.position.x,
-            msg.pose.pose.position.y
-        )
+        # Update current pose in map frame
+        try:
+            t = self.tf_buffer.lookup_transform(
+                'map', 'base_footprint', rclpy.time.Time()
+            )
+            self.current_pose = (
+                t.transform.translation.x,
+                t.transform.translation.y
+            )
+        except Exception:
+            # Analytical fallback: transform odom (0,0 anchor) to map (-12,-12 anchor)
+            ox = msg.pose.pose.position.x
+            oy = msg.pose.pose.position.y
+            cos_a = math.cos(0.785398)
+            sin_a = math.sin(0.785398)
+            self.current_pose = (
+                -12.0 + ox * cos_a - oy * sin_a,
+                -12.0 + ox * sin_a + oy * cos_a
+            )
 
     def goal_callback(self, msg: PoseStamped):
         self.goal_pose = (msg.pose.position.x, msg.pose.position.y)
@@ -72,25 +95,39 @@ class AdaptiveGlobalPlanner(Node):
             f'{self.goal_pose[1]:.2f})'
         )
         self.has_planned = False
+        self.active_path_msg = None
         self.plan_and_publish()
 
     def generate_direct_ramp_path(self, start, goal):
         """Generate trajectory traversing direct 3D incline ramp."""
-        waypoints = [
-            start,
-            (-9.0, -9.0),
-            (-5.5, -5.5),   # Ascending ramp base
-            (0.0, 0.0),     # Ramp summit platform (elevated z=1.4m)
-            (5.5, 5.5),     # Descending ramp base
-            (9.0, 9.0),
+        nominal_waypoints = [
+            (-12.0, -12.0),
+            (-8.0, -10.5),   # Curves south-east around pillar_diagonal_1
+            (-6.5, -8.0),    # Curves back to align with ramp base
+            (-5.5, -5.5),    # Ascending ramp base
+            (0.0, 0.0),      # Ramp summit platform (elevated z=1.4m)
+            (5.5, 5.5),      # Descending ramp base
+            (8.0, 6.5),      # Curves south-east around pillar_diagonal_2
+            (10.5, 8.0),     # Weaves around chicane exit
             goal
         ]
+        # Filter waypoints that are ahead of start position
+        waypoints = [start]
+        for wp in nominal_waypoints:
+            if math.hypot(wp[0] - start[0], wp[1] - start[1]) > 0.4:
+                # Check if waypoint is forward towards goal
+                d_to_goal = math.hypot(goal[0] - wp[0], goal[1] - wp[1])
+                start_to_goal = math.hypot(goal[0] - start[0], goal[1] - start[1])
+                if d_to_goal < start_to_goal:
+                    waypoints.append(wp)
+        if waypoints[-1] != goal:
+            waypoints.append(goal)
         return self._interpolate_path(waypoints, step=0.3)
 
     def generate_zigzag_floor_path(self, start, goal):
         """Generate trajectory navigating flat 2D zig-zag corridor."""
-        waypoints = [
-            start,
+        nominal_waypoints = [
+            (-12.0, -12.0),
             (-12.0, -8.0),
             (-12.0, 0.0),   # Navigating around warehouse rack 1
             (-12.0, 6.0),
@@ -103,6 +140,15 @@ class AdaptiveGlobalPlanner(Node):
             (10.0, 10.0),
             goal
         ]
+        waypoints = [start]
+        for wp in nominal_waypoints:
+            if math.hypot(wp[0] - start[0], wp[1] - start[1]) > 0.4:
+                d_to_goal = math.hypot(goal[0] - wp[0], goal[1] - wp[1])
+                start_to_goal = math.hypot(goal[0] - start[0], goal[1] - start[1])
+                if d_to_goal < start_to_goal:
+                    waypoints.append(wp)
+        if waypoints[-1] != goal:
+            waypoints.append(goal)
         return self._interpolate_path(waypoints, step=0.3)
 
     def _interpolate_path(self, waypoints, step=0.3):
@@ -144,6 +190,10 @@ class AdaptiveGlobalPlanner(Node):
 
     def plan_and_publish(self):
         """Evaluate both paths, select optimal route, and publish /plan."""
+        if self.has_planned and self.active_path_msg is not None:
+            self.path_pub.publish(self.active_path_msg)
+            return
+
         ramp_pts = self.generate_direct_ramp_path(
             self.current_pose, self.goal_pose
         )
@@ -165,24 +215,23 @@ class AdaptiveGlobalPlanner(Node):
             chosen_name = 'Zig-Zag Ground Floor Corridor (2D)'
             chosen_pts = zigzag_pts
 
-        if not self.has_planned:
-            self.get_logger().info('=' * 50)
-            self.get_logger().info('--- ADAPTIVE PATH SELECTION ---')
-            self.get_logger().info(
-                f'Option 1 [Ramp]:   Dist = {len_ramp:.2f}m | '
-                f'Elevation = {elev_ramp:.2f} | Total = {cost_ramp:.2f}'
-            )
-            self.get_logger().info(
-                f'Option 2 [ZigZag]: Dist = {len_zigzag:.2f}m | '
-                f'Elevation = 0.00 | Total = {cost_zigzag:.2f}'
-            )
-            self.get_logger().info(f'-> AUTONOMOUS CHOICE: {chosen_name}')
-            self.get_logger().info('=' * 50)
-            self.has_planned = True
+        self.get_logger().info('=' * 50)
+        self.get_logger().info('--- ADAPTIVE PATH SELECTION ---')
+        self.get_logger().info(
+            f'Option 1 [Ramp]:   Dist = {len_ramp:.2f}m | '
+            f'Elevation = {elev_ramp:.2f} | Total = {cost_ramp:.2f}'
+        )
+        self.get_logger().info(
+            f'Option 2 [ZigZag]: Dist = {len_zigzag:.2f}m | '
+            f'Elevation = 0.00 | Total = {cost_zigzag:.2f}'
+        )
+        self.get_logger().info(f'-> AUTONOMOUS CHOICE: {chosen_name}')
+        self.get_logger().info('=' * 50)
+        self.has_planned = True
 
         path_msg = Path()
         path_msg.header.stamp = self.get_clock().now().to_msg()
-        path_msg.header.frame_id = 'odom'
+        path_msg.header.frame_id = 'map'
 
         for pt in chosen_pts:
             pose = PoseStamped()
@@ -193,7 +242,8 @@ class AdaptiveGlobalPlanner(Node):
             pose.pose.orientation.w = 1.0
             path_msg.poses.append(pose)
 
-        self.path_pub.publish(path_msg)
+        self.active_path_msg = path_msg
+        self.path_pub.publish(self.active_path_msg)
 
 
 def main(args=None):

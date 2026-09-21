@@ -1,0 +1,30 @@
+<?xml version="1.0" ?>
+<sdf version="1.8">
+  <model name="dynamic_amr">
+    <static>false</static>
+    <link name="amr_link">
+      <inertial>
+        <mass>25.0</mass>
+        <inertia>
+          <ixx>1.5</ixx><ixy>0</ixy><ixz>0</ixz>
+          <iyy>1.5</iyy><iyz>0</iyz>
+          <izz>2.0</izz>
+        </inertia>
+      </inertial>
+      <collision name="collision">
+        <geometry>
+          <box><size>0.8 0.6 0.5</size></box>
+        </geometry>
+      </collision>
+      <visual name="visual">
+        <geometry>
+          <box><size>0.8 0.6 0.5</size></box>
+        </geometry>
+        <material>
+          <ambient>0.8 0.2 0.2 1</ambient>
+          <diffuse>0.8 0.2 0.2 1</diffuse>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
